@@ -1,0 +1,58 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+
+// Estrutura de dados que será recebida
+typedef struct struct_dados {
+  uint32_t tempoLigado;
+} struct_dados;
+
+struct_dados dadosRecebidos;
+
+// Callback para recebimento de dados
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
+  memcpy(&dadosRecebidos, incomingData, sizeof(dadosRecebidos));
+
+  Serial.print("Tempo recebido: ");
+  Serial.println(dadosRecebidos.tempoLigado);
+
+  // Mostrar MAC do remetente
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+           recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+           recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
+  Serial.print("Remetente: ");
+  Serial.println(macStr);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);  // Aguarda inicialização da serial
+
+  // Coloca o Wi-Fi em modo STA e inicia
+  WiFi.mode(WIFI_STA);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // Fixa canal 1 para ESP-NOW
+  esp_wifi_start(); // Garante que a interface WiFi está ativa
+  delay(100); // Dá tempo de inicializar
+
+  // Exibe o MAC STA (garantido que não será 00)
+  uint8_t mac[6];
+  esp_wifi_get_mac(WIFI_IF_STA, mac);
+  Serial.printf("MAC do receptor (STA): %02X:%02X:%02X:%02X:%02X:%02X\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  // Inicializa ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao iniciar ESP-NOW");
+    return;
+  }
+
+  // Registra callback de recepção
+  esp_now_register_recv_cb(OnDataRecv);
+
+  Serial.println("Receptor pronto para receber via ESP-NOW!");
+}
+
+void loop() {
+  // Tudo acontece via callback
+}
