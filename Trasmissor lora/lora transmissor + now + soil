@@ -1,0 +1,101 @@
+#include <WiFi.h>
+#include <esp_now.h>
+extern "C" {
+  #include "esp_wifi.h"
+}
+#include "LoRaWan_APP.h"
+#include "Arduino.h"
+
+#define RF_FREQUENCY        915000000
+#define TX_OUTPUT_POWER     5
+#define LORA_BANDWIDTH      0
+#define LORA_SPREADING_FACTOR 7
+#define LORA_CODINGRATE     1
+#define LORA_PREAMBLE_LENGTH 8
+#define LORA_SYMBOL_TIMEOUT 0
+#define LORA_FIX_LENGTH_PAYLOAD_ON false
+#define LORA_IQ_INVERSION_ON false
+#define BUFFER_SIZE         128
+
+char txpacket[BUFFER_SIZE];
+double cont100 = 100;
+double cont200 = 200;
+
+bool lora_idle = true;
+static RadioEvents_t RadioEvents;
+
+// Estrutura recebida via ESP-NOW
+typedef struct struct_dados {
+  uint32_t tempoLigado;
+  uint16_t solo;
+} struct_dados;
+
+struct_dados dadosRecebidos;
+uint32_t tempoLigadoNow = 0;
+uint16_t soloNow = 0;
+
+// Callback ESP-NOW
+void OnEspNowReceive(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+  memcpy(&dadosRecebidos, data, sizeof(dadosRecebidos));
+  tempoLigadoNow = dadosRecebidos.tempoLigado;
+  soloNow = dadosRecebidos.solo;
+
+  Serial.printf("Recebido via ESP-NOW: tempo=%lu, solo=%u\n", tempoLigadoNow, soloNow);
+}
+
+// Callback LoRa
+void OnTxDone(void) {
+  Serial.println("TX LoRa concluído.");
+  lora_idle = true;
+}
+
+void OnTxTimeout(void) {
+  Radio.Sleep();
+  Serial.println("TX Timeout LoRa...");
+  lora_idle = true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  // Inicializa ESP-NOW
+  WiFi.mode(WIFI_STA);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_start();
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao iniciar ESP-NOW");
+    return;
+  }
+  esp_now_register_recv_cb(OnEspNowReceive);
+
+  // Inicializa LoRa
+  Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+  RadioEvents.TxDone = OnTxDone;
+  RadioEvents.TxTimeout = OnTxTimeout;
+  Radio.Init(&RadioEvents);
+  Radio.SetChannel(RF_FREQUENCY);
+  Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
+                    LORA_SPREADING_FACTOR, LORA_CODINGRATE, LORA_PREAMBLE_LENGTH,
+                    LORA_FIX_LENGTH_PAYLOAD_ON, true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+
+  Serial.println("LoRa + ESP-NOW transmissor pronto!");
+}
+
+void loop() {
+  if (lora_idle) {
+    cont100++;
+    cont200++;
+
+    snprintf(txpacket, BUFFER_SIZE, "Valores -> 100: %.0f, 200: %.0f, tempo: %lu, solo: %u",
+             cont100, cont200, tempoLigadoNow, soloNow);
+
+    Serial.printf("Enviando via LoRa: %s\n", txpacket);
+
+    Radio.Send((uint8_t *)txpacket, strlen(txpacket));
+    lora_idle = false;
+  }
+
+  Radio.IrqProcess();
+  delay(1000);
+}
