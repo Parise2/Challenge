@@ -1,0 +1,114 @@
+#include "LoRaWan_APP.h"
+#include "Arduino.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+// --- Configurações LoRa ---
+#define RF_FREQUENCY          915000000
+#define LORA_BANDWIDTH        0
+#define LORA_SPREADING_FACTOR 7
+#define LORA_CODINGRATE       1
+#define LORA_PREAMBLE_LENGTH  8
+#define LORA_SYMBOL_TIMEOUT   0
+#define LORA_FIX_LENGTH_PAYLOAD_ON false
+#define LORA_IQ_INVERSION_ON  false
+#define BUFFER_SIZE           128
+
+char rxpacket[BUFFER_SIZE];
+static RadioEvents_t RadioEvents;
+bool lora_idle = true;
+
+// --- Configurações WiFi e MQTT ---
+const char* ssid = "proibidocelular";
+const char* password = "parise123";
+const char* mqtt_server = "test.mosquitto.org"; // Ex: "192.168.1.100"
+const int mqtt_port = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// --- Declaração de Funções ---
+void setup_wifi();
+void reconnect_mqtt();
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr);
+
+void setup() {
+  Serial.begin(115200);
+  Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+
+  // Inicia o WiFi e se conecta
+  setup_wifi();
+
+  // Configura o cliente MQTT
+  client.setServer(mqtt_server, mqtt_port);
+
+  // Configura as funções do rádio LoRa
+  RadioEvents.RxDone = OnRxDone;
+  Radio.Init(&RadioEvents);
+  Radio.SetChannel(RF_FREQUENCY);
+  Radio.SetRxConfig(MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
+                    LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH, LORA_SYMBOL_TIMEOUT,
+                    LORA_FIX_LENGTH_PAYLOAD_ON, 0, true, 0, 0,
+                    LORA_IQ_INVERSION_ON, true);
+}
+
+void loop() {
+  // Mantém a conexão MQTT
+  if (!client.connected()) {
+    reconnect_mqtt();
+  }
+  client.loop();
+
+  // Mantém o receptor LoRa em modo de escuta
+  if (lora_idle) {
+    lora_idle = false;
+    Serial.println("Aguardando pacotes LoRa...");
+    Radio.Rx(0);
+  }
+  Radio.IrqProcess();
+}
+
+void setup_wifi() {
+  delay(10);
+  Serial.print("Conectando a ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi conectado!");
+  Serial.print("Endereço IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void reconnect_mqtt() {
+  while (!client.connected()) {
+    Serial.print("Tentando conectar ao broker MQTT...");
+    if (client.connect("LoRaGatewayClient")) {
+      Serial.println(" conectado!");
+    } else {
+      Serial.print(" falhou, rc=");
+      Serial.print(client.state());
+      Serial.println(" tentando novamente em 5 segundos");
+      delay(5000);
+    }
+  }
+}
+
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr) {
+  memcpy(rxpacket, payload, size);
+  rxpacket[size] = '\0';
+  Radio.Sleep();
+
+  Serial.printf("Recebido via LoRa: \"%s\" (RSSI %d, tamanho %d)\n", rxpacket, rssi, size);
+  
+  // Publica a mensagem recebida via LoRa no broker MQTT
+  client.publish("sensores/loraALGUMACOISADAMINHACABEÇA3005", rxpacket);
+  Serial.printf("Publicado no MQTT: \"%s\"\n", rxpacket);
+
+  lora_idle = true;
+}
