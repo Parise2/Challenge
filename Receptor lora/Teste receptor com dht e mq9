@@ -1,0 +1,57 @@
+// === HELTEC ESP32 LoRa - RECEPTOR ===
+// Recebe a string enviada pelo transmissor contendo:
+// tempo, solo, temperatura, umidade, mq9
+
+#include "LoRaWan_APP.h"
+#include "Arduino.h"
+
+#define RF_FREQUENCY        915000000
+#define LORA_BANDWIDTH      0
+#define LORA_SPREADING_FACTOR 7
+#define LORA_CODINGRATE     1
+#define LORA_PREAMBLE_LENGTH 8
+#define LORA_SYMBOL_TIMEOUT 0
+#define LORA_FIX_LENGTH_PAYLOAD_ON false
+#define LORA_IQ_INVERSION_ON false
+#define BUFFER_SIZE         200
+
+char rxpacket[BUFFER_SIZE];
+static RadioEvents_t RadioEvents;
+bool lora_idle = true;
+
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr) {
+  size = min<size_t>(size, BUFFER_SIZE - 1);
+  memcpy(rxpacket, payload, size);
+  rxpacket[size] = '\0';
+  Radio.Sleep();
+
+  Serial.printf("[LoRa<-] \"%s\" | RSSI %d | SNR %d | %u bytes\n",
+                rxpacket, rssi, snr, size);
+
+  // Aqui você pode (opcional) fazer um parse simples da string para extrair os campos
+
+  lora_idle = true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+
+  RadioEvents.RxDone = OnRxDone;
+  Radio.Init(&RadioEvents);
+  Radio.SetChannel(RF_FREQUENCY);
+  Radio.SetRxConfig(MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
+                    LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH, LORA_SYMBOL_TIMEOUT,
+                    LORA_FIX_LENGTH_PAYLOAD_ON, 0, true, 0, 0,
+                    LORA_IQ_INVERSION_ON, true);
+
+  Serial.println("LoRa receptor pronto. Aguardando pacotes...");
+}
+
+void loop() {
+  if (lora_idle) {
+    lora_idle = false;
+    Radio.Rx(0);  // contínuo
+  }
+  Radio.IrqProcess();
+}
