@@ -14,7 +14,7 @@ unsigned long last_drop_time = 0;  // Armazena o tempo da última queda detectad
 unsigned long drop_delay = 2000;   // Tempo de espera de 2 segundos após queda (em milissegundos)
 
 void setup() {
-  Serial.begin(115200);  // Inicia o monitor serial a 115200 bps para ESP32
+  Serial.begin(115200);  // Inicia a comunicação serial a 115200 bps para ESP32
   balanca.begin(DOUT, CLK);  // Inicializa o HX711 com os pinos DOUT e CLK
 
   Serial.println("\nHX711 - Calibracao da Balança");
@@ -52,6 +52,7 @@ void loop() {
 
         // Verifica se já se passaram 2 segundos desde a última queda
         if (millis() - last_drop_time >= drop_delay) {
+          delay(500);
           last_weight = 0.0;  // Zera o peso mostrado
           Serial.println(">>> Queda detectada. Peso zerado.");
         } else {
