@@ -1,0 +1,99 @@
+#include "HX711.h" // Biblioteca HX711
+
+#define DOUT  A0   // HX711 DATA OUT = pino A0 do Arduino 
+#define CLK   A1   // HX711 SCK IN = pino A1 do Arduino 
+
+HX711 balanca;  // Instância da balança
+
+float calibration_factor = 29000;     // Fator de calibração inicial
+float last_weight = 0.0;              // Armazena o último peso válido
+float current_weight = 0.0;           // Armazena o peso atual lido
+float weight_threshold = 0.02;        // Ignora variações menores que 20 gramas
+float drop_reset_threshold = 0.2;     // Se peso reduzir ≥ 200g, zera a leitura
+unsigned long last_drop_time = 0;     // Armazena o tempo da última queda detectada
+unsigned long drop_delay = 2000;      // Tempo de espera de 2 segundos após queda (em milissegundos)
+
+void setup() {
+  Serial.begin(9600);                // Inicia o monitor serial
+  balanca.begin(DOUT, CLK);          // Inicializa o HX711
+  Serial.println("\nHX711 - Calibracao da Balança");
+  Serial.println("Remova o peso da balanca");
+  Serial.println("Depois que as leituras comecarem, coloque um peso conhecido sobre a balanca");
+  Serial.println("Pressione a,s,d,f para aumentar Fator de Calibracao por 10,100,1000,10000 respectivamente");
+  Serial.println("Pressione z,x,c,v para diminuir Fator de Calibracao por 10,100,1000,10000 respectivamente");
+  Serial.println("Apos leitura correta do peso, pressione t para TARA (zerar)");
+
+  balanca.set_scale();  // Define escala padrão
+  zeraBalanca();        // Zera a balança
+}
+
+void zeraBalanca() {
+  Serial.println();
+  balanca.tare();           // Zera a balança
+  last_weight = 0.0;        // Zera o último peso salvo
+  Serial.println("Balança Zerada");
+}
+
+void loop() {
+  balanca.set_scale(calibration_factor);
+  current_weight = balanca.get_units();  // Lê o peso atual
+  
+  // Se o valor for negativo, zeramos imediatamente
+  if (current_weight < 0) {
+    last_weight = 0.0;  // Zera o peso
+    Serial.println(">>> Peso negativo detectado. Peso zerado.");
+  } else {
+    // Se a diferença for grande e positiva (peso mudou significativamente)
+    if (abs(current_weight - last_weight) >= weight_threshold) {
+      
+      // Verifica se houve uma grande redução (queda ≥ 200g)
+      if ((last_weight - current_weight) >= drop_reset_threshold) {
+        
+        // Verifica se já se passaram 2 segundos desde a última queda
+        if (millis() - last_drop_time >= drop_delay) {
+          last_weight = 0.0;  // Zera o peso mostrado
+          Serial.println(">>> Queda detectada. Peso zerado.");
+        } else {
+          // Caso a queda tenha sido detectada recentemente, apenas registra o tempo
+          Serial.println(">>> Queda detectada. Esperando 2 segundos para zerar.");
+        }
+        
+        last_drop_time = millis();  // Atualiza o tempo da última queda
+      } else {
+        last_weight = current_weight;  // Atualiza o peso se a variação for válida
+      }
+    }
+  }
+
+  // Exibe o peso no serial
+  Serial.print("Peso: ");
+  Serial.print(last_weight, 3);
+  Serial.print(" kg");
+  Serial.print("      Fator de Calibracao: ");
+  Serial.println(calibration_factor);
+
+  delay(500); // Aguarda 0,5s entre leituras
+
+  // Leitura de comandos do teclado para ajustar calibração
+  if (Serial.available()) {
+    char temp = Serial.read();
+    if (temp == '+' || temp == 'a')
+      calibration_factor += 10;
+    else if (temp == '-' || temp == 'z')
+      calibration_factor -= 10;
+    else if (temp == 's')
+      calibration_factor += 100;
+    else if (temp == 'x')
+      calibration_factor -= 100;
+    else if (temp == 'd')
+      calibration_factor += 1000;
+    else if (temp == 'c')
+      calibration_factor -= 1000;
+    else if (temp == 'f')
+      calibration_factor += 10000;
+    else if (temp == 'v')
+      calibration_factor -= 10000;
+    else if (temp == 't')
+      zeraBalanca();
+  }
+}
